@@ -1,0 +1,14 @@
+{
+  "name": "xrpl-channel",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "xrpl": "^4.2.0"
+  }
+}
