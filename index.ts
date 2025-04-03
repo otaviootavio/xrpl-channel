@@ -13,7 +13,59 @@ import * as crypto from "crypto";
 const TESTNET_URL = "https://s.altnet.rippletest.net:51234";
 const client = new Client("wss://s.altnet.rippletest.net:51233");
 
-void claimPayChannel();
+// Main function to orchestrate the process
+void main();
+
+async function main(): Promise<void> {
+  await client.connect();
+  
+  // Setup wallets
+  const { wallet1, wallet2 } = await setupWallets();
+  
+  // Print initial balances
+  console.log("Balances of wallets before Payment Channel is claimed:");
+  await printAccountBalances(wallet1, wallet2);
+  
+  // Create payment channel
+  const channelId = await createPaymentChannel({
+    payerWallet: wallet1,
+    payeeWallet: wallet2
+  });
+  
+  // Perform off-chain transactions
+  const { cumulativeAmountDrops, finalSignature } = await performOffChainTransactions({
+    channelId,
+    wallet: wallet1
+  });
+  
+  // Claim payment channel
+  await claimPaymentChannel({
+    payeeWallet: wallet2,
+    payerWallet: wallet1,
+    channelId,
+    amount: cumulativeAmountDrops,
+    signature: finalSignature
+  });
+  
+  // Check balances after claim
+  console.log("Balances of wallets after Payment Channel is claimed:");
+  await printAccountBalances(wallet1, wallet2);
+  
+  // Close the channel
+  await closePaymentChannel({
+    wallet: wallet2,
+    channelId
+  });
+  
+  // Check final status
+  await checkFinalStatus({
+    payerWallet: wallet1,
+    payeeWallet: wallet2,
+    channelId
+  });
+  
+  await client.disconnect();
+}
 
 // Function to make raw JSON-RPC calls
 async function sendJsonRpc(method: string, params: any): Promise<any> {
@@ -43,13 +95,39 @@ async function signAndSubmit(tx: any, wallet: Wallet): Promise<any> {
   });
 }
 
-// Since we can't directly call the channel_authorize API,
-// we'll use a wrapper to send the request through xrpl client instead
+// Function to wait for transaction confirmation
+async function waitForTransaction(txHash: string, timeoutMs: number = 10000): Promise<any> {
+  console.log(`Waiting for transaction ${txHash} to be validated...`);
+  await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  
+  const txDetails = await sendJsonRpc("tx", {
+    transaction: txHash,
+  });
+  
+  return txDetails;
+}
+
+// Function to get account balance
+async function getAccountBalance(address: string): Promise<string> {
+  return (await client.getXrpBalance(address)).toString();
+}
+
+// Function to print account balances
+async function printAccountBalances(wallet1: Wallet, wallet2: Wallet): Promise<void> {
+  console.log(`Balance of ${wallet1.address} is ${await getAccountBalance(wallet1.address)} XRP`);
+  console.log(`Balance of ${wallet2.address} is ${await getAccountBalance(wallet2.address)} XRP`);
+}
+
+// Function to authorize payments for a channel
 async function channelAuthorize(
-  channelId: string,
-  amount: string,
-  seed: string
+  params: {
+    channelId: string;
+    amount: string;
+    seed: string;
+  }
 ): Promise<any> {
+  const { channelId, amount, seed } = params;
+  
   // Make a direct request to the server through the WebSocket connection
   const authorizeResult = await client.connection.request({
     command: "channel_authorize",
@@ -61,40 +139,38 @@ async function channelAuthorize(
   return authorizeResult;
 }
 
-// The snippet walks us through creating and claiming a Payment Channel.
-async function claimPayChannel(): Promise<void> {
-  await client.connect();
-
-  // creating wallets as prerequisite
+// Function to setup wallets
+async function setupWallets(): Promise<{ wallet1: Wallet; wallet2: Wallet }> {
   const { wallet: wallet1 } = await client.fundWallet();
   const { wallet: wallet2 } = await client.fundWallet();
+  
+  return { wallet1, wallet2 };
+}
 
-  console.log("Balances of wallets before Payment Channel is claimed:");
-  console.log(
-    `Balance of ${wallet1.address} is ${await client.getXrpBalance(
-      wallet1.address
-    )} XRP`
-  );
-  console.log(
-    `Balance of ${wallet2.address} is ${await client.getXrpBalance(
-      wallet2.address
-    )} XRP`
-  );
-
-  // create a Payment Channel using local signing
+// Function to create a payment channel
+async function createPaymentChannel(
+  params: {
+    payerWallet: Wallet;
+    payeeWallet: Wallet;
+    amount?: string;
+    settleDelay?: number;
+  }
+): Promise<string> {
+  const { payerWallet, payeeWallet, amount = "10000000", settleDelay = 86400 } = params;
+  
   console.log("Submitting a PaymentChannelCreate transaction...");
   const paymentChannelCreateTx = {
     TransactionType: "PaymentChannelCreate",
-    Account: wallet1.classicAddress,
-    Amount: "10000000",
-    Destination: wallet2.classicAddress,
-    SettleDelay: 86400,
-    PublicKey: wallet1.publicKey,
+    Account: payerWallet.classicAddress,
+    Amount: amount,
+    Destination: payeeWallet.classicAddress,
+    SettleDelay: settleDelay,
+    PublicKey: payerWallet.publicKey,
   };
 
   const paymentChannelCreateResponse = await signAndSubmit(
     paymentChannelCreateTx,
-    wallet1
+    payerWallet
   );
   console.log("PaymentChannelCreate transaction response:");
   console.log(paymentChannelCreateResponse);
@@ -105,14 +181,28 @@ async function claimPayChannel(): Promise<void> {
     : paymentChannelCreateResponse.result.hash;
 
   // Wait for transaction to be validated and get details
-  await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait for ledger to close
-
-  const txDetails = await sendJsonRpc("tx", {
-    transaction: txHash,
-  });
+  const txDetails = await waitForTransaction(txHash, 5000);
   console.log("Transaction details:", txDetails);
 
   // Find the Channel ID from the transaction metadata
+  let channelId = extractChannelIdFromMetadata(txDetails);
+  console.log("Channel ID:", channelId);
+
+  // check that the object was actually created using account_objects
+  const accountObjectsResponse = await sendJsonRpc("account_objects", {
+    account: payerWallet.classicAddress,
+  });
+
+  console.log(
+    "Account Objects:",
+    accountObjectsResponse.result.account_objects
+  );
+  
+  return channelId;
+}
+
+// Function to extract channel ID from transaction metadata
+function extractChannelIdFromMetadata(txDetails: any): string {
   let channelId;
   if (txDetails.result.meta && txDetails.result.meta.AffectedNodes) {
     for (const node of txDetails.result.meta.AffectedNodes) {
@@ -125,22 +215,42 @@ async function claimPayChannel(): Promise<void> {
       }
     }
   }
+  return channelId;
+}
 
-  console.log("Channel ID:", channelId);
-
-  // check that the object was actually created using account_objects
-  const accountObjectsResponse = await sendJsonRpc("account_objects", {
-    account: wallet1.classicAddress,
+// Function to verify a payment channel claim
+async function verifyPaymentChannelClaim(
+  params: {
+    channelId: string;
+    signature: string;
+    publicKey: string;
+    amount: string;
+  }
+): Promise<boolean> {
+  const { channelId, signature, publicKey, amount } = params;
+  
+  const verifyResponse = await sendJsonRpc("channel_verify", {
+    channel_id: channelId,
+    signature: signature,
+    public_key: publicKey,
+    amount: amount,
   });
+  
+  return verifyResponse.result.signature_verified === true;
+}
 
-  console.log(
-    "Account Objects:",
-    accountObjectsResponse.result.account_objects
-  );
-
+// Function to perform off-chain transactions
+async function performOffChainTransactions(
+  params: {
+    channelId: string;
+    wallet: Wallet;
+  }
+): Promise<{ cumulativeAmountDrops: string; finalSignature: string }> {
+  const { channelId, wallet } = params;
+  
   // Define payment amount in XRP and convert to drops
-  const paymentAmountXRP = 0.04;
-  const paymentAmountDrops = (paymentAmountXRP * 1000000).toString(); // 40000 drops
+  const paymentAmountXRP = 0.4;
+  const paymentAmountDrops = (paymentAmountXRP * 1000000).toString(); // 400000 drops
   let cumulativeAmountDrops = 0;
   let finalSignature = "";
 
@@ -149,17 +259,17 @@ async function claimPayChannel(): Promise<void> {
   );
 
   // Loop to simulate 100 off-chain payments
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 10; i++) {
     // Increase cumulative amount
     cumulativeAmountDrops += parseInt(paymentAmountDrops);
     const currentClaimAmount = cumulativeAmountDrops.toString();
 
     // Create a claim for the current cumulative amount
-    const authorizeResponse = await channelAuthorize(
+    const authorizeResponse = await channelAuthorize({
       channelId,
-      currentClaimAmount,
-      wallet1.seed || ""
-    );
+      amount: currentClaimAmount,
+      seed: wallet.seed || "",
+    });
 
     // Make sure we have a signature
     if (!authorizeResponse.result || !authorizeResponse.result.signature) {
@@ -171,11 +281,11 @@ async function claimPayChannel(): Promise<void> {
     // Store the signature
     finalSignature = authorizeResponse.result.signature;
 
-    // Verify every single claim
-    const verifyResponse = await sendJsonRpc("channel_verify", {
-      channel_id: channelId,
+    // Verify the claim
+    const isVerified = await verifyPaymentChannelClaim({
+      channelId,
       signature: finalSignature,
-      public_key: wallet1.publicKey,
+      publicKey: wallet.publicKey,
       amount: currentClaimAmount,
     });
 
@@ -184,11 +294,7 @@ async function claimPayChannel(): Promise<void> {
         parseFloat(currentClaimAmount) / 1000000
       } XRP)`
     );
-    console.log(
-      `Verification result: ${
-        verifyResponse.result.signature_verified ? "Valid ✓" : "Invalid ✗"
-      }`
-    );
+    console.log(`Verification result: ${isVerified ? "Valid ✓" : "Invalid ✗"}`);
   }
 
   console.log(
@@ -197,79 +303,112 @@ async function claimPayChannel(): Promise<void> {
     } XRP)`
   );
   console.log(`Final signature: ${finalSignature}`);
+  
+  return { cumulativeAmountDrops: cumulativeAmountDrops.toString(), finalSignature };
+}
 
-  // Now claim the total amount using the final signature
+// Function to claim a payment channel
+async function claimPaymentChannel(
+  params: {
+    payeeWallet: Wallet;
+    payerWallet: Wallet; 
+    channelId: string;
+    amount: string;
+    signature: string;
+  }
+): Promise<void> {
+  const { payeeWallet, payerWallet, channelId, amount, signature } = params;
+  
+  // Claim the total amount using the final signature
   const paymentChannelClaimTx = {
-    Account: wallet2.classicAddress,
+    Account: payeeWallet.classicAddress,
     TransactionType: "PaymentChannelClaim",
     Channel: channelId,
-    Amount: cumulativeAmountDrops.toString(),
-    Balance: cumulativeAmountDrops.toString(),
-    Signature: finalSignature,
-    PublicKey: wallet1.publicKey,
+    Amount: amount,
+    Balance: amount,
+    Signature: signature,
+    PublicKey: payerWallet.publicKey,
   };
 
   const channelClaimResponse = await signAndSubmit(
     paymentChannelClaimTx,
-    wallet2
+    payeeWallet
   );
   console.log("PaymentChannelClaim transaction response:");
   console.log(channelClaimResponse);
 
-  await new Promise((resolve) => setTimeout(resolve, 10000));
+  // Wait for transaction to be validated
+  const txHash = channelClaimResponse.result.tx_blob
+    ? channelClaimResponse.result.tx_json.hash
+    : channelClaimResponse.result.hash;
+  
+  await waitForTransaction(txHash);
 
   // Check channel status after claim
   const channelsResponse = await sendJsonRpc("account_channels", {
-    account: wallet1.classicAddress,
-    destination_account: wallet2.classicAddress,
+    account: payerWallet.classicAddress,
+    destination_account: payeeWallet.classicAddress,
     ledger_index: "validated",
   });
 
   console.log("Channel status after claim:", channelsResponse);
+}
 
-  console.log("Balances of wallets after Payment Channel is claimed:");
-  console.log(
-    `Balance of ${wallet1.address} is ${await client.getXrpBalance(
-      wallet1.address
-    )} XRP`
-  );
-  console.log(
-    `Balance of ${wallet2.address} is ${await client.getXrpBalance(
-      wallet2.address
-    )} XRP`
-  );
-
+// Function to close a payment channel
+async function closePaymentChannel(
+  params: {
+    wallet: Wallet;
+    channelId: string;
+  }
+): Promise<void> {
+  const { wallet, channelId } = params;
+  
   // Request to close the channel immediately (from the destination/payee account)
   const closeChannelTx = {
-    Account: wallet2.classicAddress,
+    Account: wallet.classicAddress,
     TransactionType: "PaymentChannelClaim",
     Channel: channelId,
     Flags: 2147614720, // tfClose flag
   };
 
-  const closeChannelResponse = await signAndSubmit(closeChannelTx, wallet2);
+  const closeChannelResponse = await signAndSubmit(closeChannelTx, wallet);
   console.log("Close channel response:", closeChannelResponse);
+  
+  // Wait for transaction to be validated
+  const txHash = closeChannelResponse.result.tx_blob
+    ? closeChannelResponse.result.tx_json.hash
+    : closeChannelResponse.result.hash;
+  
+  await waitForTransaction(txHash, 5000);
+}
 
-  // Wait a bit to allow ledger processing
-  await new Promise((resolve) => setTimeout(resolve, 5000));
-
+// Function to check final status
+async function checkFinalStatus(
+  params: {
+    payerWallet: Wallet;
+    payeeWallet: Wallet;
+    channelId: string;
+  }
+): Promise<void> {
+  const { payerWallet, payeeWallet, channelId } = params;
+  
   // Check final balances after attempting to close the channel
   console.log("Final balances after channel close request:");
   console.log(
     `Final balance of ${
-      wallet1.address
-    } (payer) is ${await client.getXrpBalance(wallet1.address)} XRP`
+      payerWallet.address
+    } (payer) is ${await getAccountBalance(payerWallet.address)} XRP`
   );
   console.log(
     `Final balance of ${
-      wallet2.address
-    } (payee) is ${await client.getXrpBalance(wallet2.address)} XRP`
+      payeeWallet.address
+    } (payee) is ${await getAccountBalance(payeeWallet.address)} XRP`
   );
 
   // Check if channel still exists
   const finalChannelsResponse = await sendJsonRpc("account_channels", {
-    account: wallet1.classicAddress,
-    destination_account: wallet2.classicAddress,
+    account: payerWallet.classicAddress,
+    destination_account: payeeWallet.classicAddress,
     ledger_index: "validated",
   });
 
@@ -293,6 +432,4 @@ async function claimPayChannel(): Promise<void> {
   } else {
     console.log("Channel has been fully closed and removed from the ledger");
   }
-
-  await client.disconnect();
 }
