@@ -5,9 +5,13 @@
 import {
   Client,
   Wallet,
+  signPaymentChannelClaim,
 } from "xrpl";
 import fetch from "node-fetch";
 import * as crypto from "crypto";
+
+// Import the request and response types for channel_verify
+import type { ChannelVerifyRequest, ChannelVerifyResponse } from "xrpl";
 
 // Use a direct HTTP endpoint for raw JSON-RPC calls
 const TESTNET_URL = "https://s.altnet.rippletest.net:51234";
@@ -128,15 +132,26 @@ async function channelAuthorize(
 ): Promise<any> {
   const { channelId, amount, seed } = params;
   
-  // Make a direct request to the server through the WebSocket connection
-  const authorizeResult = await client.connection.request({
-    command: "channel_authorize",
-    channel_id: channelId,
-    amount: amount,
-    secret: seed,
-  });
-
-  return authorizeResult;
+  // Extract the private key from the seed
+  const wallet = Wallet.fromSeed(seed);
+  
+  // Convert drops to XRP for the signPaymentChannelClaim function
+  // signPaymentChannelClaim expects the amount in XRP, not drops
+  const amountInXRP = (parseInt(amount) / 1000000).toString();
+  
+  // Use the signPaymentChannelClaim function from xrpl.js
+  const signature = signPaymentChannelClaim(
+    channelId,
+    amountInXRP,
+    wallet.privateKey
+  );
+  
+  // Return in the same format as the original function
+  return {
+    result: {
+      signature: signature
+    }
+  };
 }
 
 // Function to setup wallets
@@ -229,13 +244,19 @@ async function verifyPaymentChannelClaim(
 ): Promise<boolean> {
   const { channelId, signature, publicKey, amount } = params;
   
-  const verifyResponse = await sendJsonRpc("channel_verify", {
+  // Use the client's request method with the proper types for channel_verify
+  const verifyRequest: ChannelVerifyRequest = {
+    command: 'channel_verify',
     channel_id: channelId,
     signature: signature,
     public_key: publicKey,
     amount: amount,
-  });
+  };
   
+  // Send the request and specify the response type
+  const verifyResponse = await client.request(verifyRequest) as ChannelVerifyResponse;
+  
+  // Return the verification result
   return verifyResponse.result.signature_verified === true;
 }
 
