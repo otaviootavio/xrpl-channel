@@ -4,11 +4,7 @@
  */
 import {
   Client,
-  hashes,
   Wallet,
-  encode,
-  decode,
-  convertStringToHex,
 } from "xrpl";
 import fetch from "node-fetch";
 import * as crypto from "crypto";
