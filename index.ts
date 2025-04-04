@@ -2,11 +2,7 @@
  * Create, claim and verify a Payment Channel.
  * Reference: https://xrpl.org/paychannel.html
  */
-import {
-  Client,
-  Wallet,
-  signPaymentChannelClaim,
-} from "xrpl";
+import { Client, Wallet, signPaymentChannelClaim } from "xrpl";
 import fetch from "node-fetch";
 import * as crypto from "crypto";
 
@@ -22,52 +18,53 @@ void main();
 
 async function main(): Promise<void> {
   await client.connect();
-  
+
   // Setup wallets
   const { wallet1, wallet2 } = await setupWallets();
-  
+
   // Print initial balances
   console.log("Balances of wallets before Payment Channel is claimed:");
   await printAccountBalances(wallet1, wallet2);
-  
+
   // Create payment channel
   const channelId = await createPaymentChannel({
     payerWallet: wallet1,
-    payeeWallet: wallet2
+    payeeWallet: wallet2,
   });
-  
+
   // Perform off-chain transactions
-  const { cumulativeAmountDrops, finalSignature } = await performOffChainTransactions({
-    channelId,
-    wallet: wallet1
-  });
-  
+  const { cumulativeAmountDrops, finalSignature } =
+    await performOffChainTransactions({
+      channelId,
+      wallet: wallet1,
+    });
+
   // Claim payment channel
   await claimPaymentChannel({
     payeeWallet: wallet2,
     payerWallet: wallet1,
     channelId,
     amount: cumulativeAmountDrops,
-    signature: finalSignature
+    signature: finalSignature,
   });
-  
+
   // Check balances after claim
   console.log("Balances of wallets after Payment Channel is claimed:");
   await printAccountBalances(wallet1, wallet2);
-  
+
   // Close the channel
   await closePaymentChannel({
     wallet: wallet2,
-    channelId
+    channelId,
   });
-  
+
   // Check final status
   await checkFinalStatus({
     payerWallet: wallet1,
     payeeWallet: wallet2,
-    channelId
+    channelId,
   });
-  
+
   await client.disconnect();
 }
 
@@ -100,14 +97,17 @@ async function signAndSubmit(tx: any, wallet: Wallet): Promise<any> {
 }
 
 // Function to wait for transaction confirmation
-async function waitForTransaction(txHash: string, timeoutMs: number = 10000): Promise<any> {
+async function waitForTransaction(
+  txHash: string,
+  timeoutMs: number = 10000
+): Promise<any> {
   console.log(`Waiting for transaction ${txHash} to be validated...`);
   await new Promise((resolve) => setTimeout(resolve, timeoutMs));
-  
+
   const txDetails = await sendJsonRpc("tx", {
     transaction: txHash,
   });
-  
+
   return txDetails;
 }
 
@@ -117,40 +117,49 @@ async function getAccountBalance(address: string): Promise<string> {
 }
 
 // Function to print account balances
-async function printAccountBalances(wallet1: Wallet, wallet2: Wallet): Promise<void> {
-  console.log(`Balance of ${wallet1.address} is ${await getAccountBalance(wallet1.address)} XRP`);
-  console.log(`Balance of ${wallet2.address} is ${await getAccountBalance(wallet2.address)} XRP`);
+async function printAccountBalances(
+  wallet1: Wallet,
+  wallet2: Wallet
+): Promise<void> {
+  console.log(
+    `Balance of ${wallet1.address} is ${await getAccountBalance(
+      wallet1.address
+    )} XRP`
+  );
+  console.log(
+    `Balance of ${wallet2.address} is ${await getAccountBalance(
+      wallet2.address
+    )} XRP`
+  );
 }
 
 // Function to authorize payments for a channel
-async function channelAuthorize(
-  params: {
-    channelId: string;
-    amount: string;
-    seed: string;
-  }
-): Promise<any> {
+async function channelAuthorize(params: {
+  channelId: string;
+  amount: string;
+  seed: string;
+}): Promise<any> {
   const { channelId, amount, seed } = params;
-  
+
   // Extract the private key from the seed
   const wallet = Wallet.fromSeed(seed);
-  
+
   // Convert drops to XRP for the signPaymentChannelClaim function
   // signPaymentChannelClaim expects the amount in XRP, not drops
   const amountInXRP = (parseInt(amount) / 1000000).toString();
-  
+
   // Use the signPaymentChannelClaim function from xrpl.js
   const signature = signPaymentChannelClaim(
     channelId,
     amountInXRP,
     wallet.privateKey
   );
-  
+
   // Return in the same format as the original function
   return {
     result: {
-      signature: signature
-    }
+      signature: signature,
+    },
   };
 }
 
@@ -158,21 +167,24 @@ async function channelAuthorize(
 async function setupWallets(): Promise<{ wallet1: Wallet; wallet2: Wallet }> {
   const { wallet: wallet1 } = await client.fundWallet();
   const { wallet: wallet2 } = await client.fundWallet();
-  
+
   return { wallet1, wallet2 };
 }
 
 // Function to create a payment channel
-async function createPaymentChannel(
-  params: {
-    payerWallet: Wallet;
-    payeeWallet: Wallet;
-    amount?: string;
-    settleDelay?: number;
-  }
-): Promise<string> {
-  const { payerWallet, payeeWallet, amount = "10000000", settleDelay = 86400 } = params;
-  
+async function createPaymentChannel(params: {
+  payerWallet: Wallet;
+  payeeWallet: Wallet;
+  amount?: string;
+  settleDelay?: number;
+}): Promise<string> {
+  const {
+    payerWallet,
+    payeeWallet,
+    amount = "10000000",
+    settleDelay = 86400,
+  } = params;
+
   console.log("Submitting a PaymentChannelCreate transaction...");
   const paymentChannelCreateTx = {
     TransactionType: "PaymentChannelCreate",
@@ -212,7 +224,7 @@ async function createPaymentChannel(
     "Account Objects:",
     accountObjectsResponse.result.account_objects
   );
-  
+
   return channelId;
 }
 
@@ -234,41 +246,39 @@ function extractChannelIdFromMetadata(txDetails: any): string {
 }
 
 // Function to verify a payment channel claim
-async function verifyPaymentChannelClaim(
-  params: {
-    channelId: string;
-    signature: string;
-    publicKey: string;
-    amount: string;
-  }
-): Promise<boolean> {
+async function verifyPaymentChannelClaim(params: {
+  channelId: string;
+  signature: string;
+  publicKey: string;
+  amount: string;
+}): Promise<boolean> {
   const { channelId, signature, publicKey, amount } = params;
-  
+
   // Use the client's request method with the proper types for channel_verify
   const verifyRequest: ChannelVerifyRequest = {
-    command: 'channel_verify',
+    command: "channel_verify",
     channel_id: channelId,
     signature: signature,
     public_key: publicKey,
     amount: amount,
   };
-  
+
   // Send the request and specify the response type
-  const verifyResponse = await client.request(verifyRequest) as ChannelVerifyResponse;
-  
+  const verifyResponse = (await client.request(
+    verifyRequest
+  )) as ChannelVerifyResponse;
+
   // Return the verification result
   return verifyResponse.result.signature_verified === true;
 }
 
 // Function to perform off-chain transactions
-async function performOffChainTransactions(
-  params: {
-    channelId: string;
-    wallet: Wallet;
-  }
-): Promise<{ cumulativeAmountDrops: string; finalSignature: string }> {
+async function performOffChainTransactions(params: {
+  channelId: string;
+  wallet: Wallet;
+}): Promise<{ cumulativeAmountDrops: string; finalSignature: string }> {
   const { channelId, wallet } = params;
-  
+
   // Define payment amount in XRP and convert to drops
   const paymentAmountXRP = 0.4;
   const paymentAmountDrops = (paymentAmountXRP * 1000000).toString(); // 400000 drops
@@ -324,22 +334,23 @@ async function performOffChainTransactions(
     } XRP)`
   );
   console.log(`Final signature: ${finalSignature}`);
-  
-  return { cumulativeAmountDrops: cumulativeAmountDrops.toString(), finalSignature };
+
+  return {
+    cumulativeAmountDrops: cumulativeAmountDrops.toString(),
+    finalSignature,
+  };
 }
 
 // Function to claim a payment channel
-async function claimPaymentChannel(
-  params: {
-    payeeWallet: Wallet;
-    payerWallet: Wallet; 
-    channelId: string;
-    amount: string;
-    signature: string;
-  }
-): Promise<void> {
+async function claimPaymentChannel(params: {
+  payeeWallet: Wallet;
+  payerWallet: Wallet;
+  channelId: string;
+  amount: string;
+  signature: string;
+}): Promise<void> {
   const { payeeWallet, payerWallet, channelId, amount, signature } = params;
-  
+
   // Claim the total amount using the final signature
   const paymentChannelClaimTx = {
     Account: payeeWallet.classicAddress,
@@ -362,7 +373,7 @@ async function claimPaymentChannel(
   const txHash = channelClaimResponse.result.tx_blob
     ? channelClaimResponse.result.tx_json.hash
     : channelClaimResponse.result.hash;
-  
+
   await waitForTransaction(txHash);
 
   // Check channel status after claim
@@ -376,14 +387,12 @@ async function claimPaymentChannel(
 }
 
 // Function to close a payment channel
-async function closePaymentChannel(
-  params: {
-    wallet: Wallet;
-    channelId: string;
-  }
-): Promise<void> {
+async function closePaymentChannel(params: {
+  wallet: Wallet;
+  channelId: string;
+}): Promise<void> {
   const { wallet, channelId } = params;
-  
+
   // Request to close the channel immediately (from the destination/payee account)
   const closeChannelTx = {
     Account: wallet.classicAddress,
@@ -394,25 +403,23 @@ async function closePaymentChannel(
 
   const closeChannelResponse = await signAndSubmit(closeChannelTx, wallet);
   console.log("Close channel response:", closeChannelResponse);
-  
+
   // Wait for transaction to be validated
   const txHash = closeChannelResponse.result.tx_blob
     ? closeChannelResponse.result.tx_json.hash
     : closeChannelResponse.result.hash;
-  
+
   await waitForTransaction(txHash, 5000);
 }
 
 // Function to check final status
-async function checkFinalStatus(
-  params: {
-    payerWallet: Wallet;
-    payeeWallet: Wallet;
-    channelId: string;
-  }
-): Promise<void> {
+async function checkFinalStatus(params: {
+  payerWallet: Wallet;
+  payeeWallet: Wallet;
+  channelId: string;
+}): Promise<void> {
   const { payerWallet, payeeWallet, channelId } = params;
-  
+
   // Check final balances after attempting to close the channel
   console.log("Final balances after channel close request:");
   console.log(
