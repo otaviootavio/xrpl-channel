@@ -3,7 +3,6 @@
  * Reference: https://xrpl.org/paychannel.html
  */
 import { Client, Wallet, signPaymentChannelClaim } from "xrpl";
-import fetch from "node-fetch";
 
 // Import the request and response types for channel_verify
 import type {
@@ -14,7 +13,6 @@ import type {
 } from "xrpl";
 
 // Use a direct HTTP endpoint for raw JSON-RPC calls
-const TESTNET_URL = "https://s.altnet.rippletest.net:51234";
 const client = new Client("wss://s.altnet.rippletest.net:51233");
 
 // Main function to orchestrate the process
@@ -30,14 +28,33 @@ async function main(): Promise<void> {
   console.log("Balances of wallets before Payment Channel is claimed:");
   await printAccountBalances(wallet1, wallet2);
 
-  // Create payment channel
+  // #1. The payer creates a payment channel to a particular recipient.
+
   const channelId = await createPaymentChannel({
     payerWallet: wallet1,
-    payeeWallet: wallet2,
+    payeeClassicAddress: wallet2.classicAddress,
   });
 
+  // TODO:
+  // #2. The payee checks specifics of the payment channel.
+  // The payee should check that the parameters of the payment channel are
+  // suitable for their specific use case, including all of the following:
+  //
+  // 1. Confirm the destination_account field has the payee's correct address.
+  //
+  // 2. Confirm the settle_delay field has a settlement delay in seconds that
+  // provides enough time for the payee to redeem outstanding claims.
+  //
+  // 3. Confirm the fields cancel_after (immutable expiration) and expiration
+  // (mutable expiration), if they are present, are not too soon. The payee
+  // should take note of these times so they can be sure to redeem claims
+  // before then.
+  //
+  // 4. Take note of the public_key and channel_id fields. These are necessary
+  // later to verify and redeem claims.
+
   // Define payment amount in XRP and convert to drops
-  const paymentAmountXRP = 0.4;
+  const paymentAmountXRP = 0.04;
   const paymentAmountDrops = (paymentAmountXRP * 1000000).toString(); // 400000 drops
   let cumulativeAmountDrops = 0;
   let finalSignature = "";
@@ -47,25 +64,27 @@ async function main(): Promise<void> {
   );
 
   // Loop to simulate 10 off-chain payments
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 100; i++) {
     // Increase cumulative amount
     cumulativeAmountDrops += parseInt(paymentAmountDrops);
     const currentClaimAmount = cumulativeAmountDrops.toString();
 
-    // 1. Payer: Create a claim for the current cumulative amount
     console.log(
       `Payer: Creating claim for payment ${
         i + 1
       } (${currentClaimAmount} drops)...`
     );
 
+    // #3. The payer creates one or more signed claims for the XRP in the channel.
     finalSignature = await createPaymentChannelClaim({
       channelId,
       amount: currentClaimAmount,
       wallet: wallet1,
     });
 
-    // 2. Payee: Verify the claim
+    // #4.The payer sends a claim to the payee as payment for goods or services.
+
+    // #5. The payee verifies the claim
     console.log(`Payee: Verifying claim for payment ${i + 1}...`);
     const isVerified = await verifyPaymentChannelClaim({
       channelId,
@@ -73,6 +92,20 @@ async function main(): Promise<void> {
       publicKey: wallet1.publicKey,
       amount: currentClaimAmount,
     });
+
+    // After confirming both the signature and the current state of the payment channel,
+    // the payee has not yet received the XRP, but is certain that he or she can redeem
+    // the XRP as long as the transaction to do so is processed before the channel expires.
+
+    // #6. Payee provides goods or services.
+    // #7. Repeat steps 3-6 as desired. The two main limits of this process are:
+    //
+    // 1. The amount of XRP in the payment channel. (If necessary, the payer can send a 
+    // PaymentChannelFund transaction to increase the total amount of XRP available 
+    // to the channel.)
+    // 
+    // 2. The immutable expiration of the payment channel, if one is set. (The cancel_after
+    // field in the response to the account_channels method shows this.)
 
     console.log(
       `Payment ${i + 1}: Verified claim for ${currentClaimAmount} drops (${
@@ -89,7 +122,7 @@ async function main(): Promise<void> {
   );
   console.log(`Final signature: ${finalSignature}`);
 
-  // Claim payment channel
+  // #8 When ready, the payee redeems a claim for the authorized amount
   await claimPaymentChannel({
     payeeWallet: wallet2,
     payerWallet: wallet1,
@@ -102,7 +135,8 @@ async function main(): Promise<void> {
   console.log("Balances of wallets after Payment Channel is claimed:");
   await printAccountBalances(wallet1, wallet2);
 
-  // Close the channel
+  // #9. When the payer and payee are done doing business,
+  // the payer requests for the channel to be closed.
   await closePaymentChannel({
     wallet: wallet2,
     channelId,
@@ -177,13 +211,13 @@ async function setupWallets(): Promise<{ wallet1: Wallet; wallet2: Wallet }> {
 // Function to create a payment channel
 async function createPaymentChannel(params: {
   payerWallet: Wallet;
-  payeeWallet: Wallet;
+  payeeClassicAddress: string;
   amount?: string;
   settleDelay?: number;
 }): Promise<string> {
   const {
     payerWallet,
-    payeeWallet,
+    payeeClassicAddress,
     amount = "10000000",
     settleDelay = 86400,
   } = params;
@@ -193,15 +227,10 @@ async function createPaymentChannel(params: {
     TransactionType: "PaymentChannelCreate",
     Account: payerWallet.classicAddress,
     Amount: amount,
-    Destination: payeeWallet.classicAddress,
+    Destination: payeeClassicAddress,
     SettleDelay: settleDelay,
     PublicKey: payerWallet.publicKey,
   };
-
-  // const paymentChannelCreateResponse = await signAndSubmit(
-  //   paymentChannelCreateTx,
-  //   payerWallet
-  // );
 
   const paymentChannelCreateResponse = await client.submitAndWait(
     paymentChannelCreateTx,
@@ -212,13 +241,6 @@ async function createPaymentChannel(params: {
   );
   console.log("PaymentChannelCreate transaction response:");
   console.log(paymentChannelCreateResponse);
-
-  // Get transaction hash from the response
-  // const txHash = paymentChannelCreateResponse.result.hash;
-
-  // Wait for transaction to be validated and get details
-  // const txDetails = await waitForTransaction(txHash, 5000);
-  // console.log("Transaction details:", txDetails);
 
   // Find the Channel ID from the transaction metadata
   let channelId = extractChannelIdFromMetadata(
@@ -308,9 +330,6 @@ async function verifyPaymentChannelClaim(params: {
 }): Promise<boolean> {
   const { channelId, signature, publicKey, amount } = params;
 
-  // Use the client's request method with the proper types for channel_verify
-  // Todo: optimize to just verify that the channel has enough funds one time
-  // If i verify one time, can payee trust on this information?
   const verifyRequest: ChannelVerifyRequest = {
     command: "channel_verify",
     channel_id: channelId,
@@ -319,16 +338,23 @@ async function verifyPaymentChannelClaim(params: {
     amount: amount,
   };
 
-  // Send the request and specify the response type
+  // From the docs:
+  // https://xrpl.org/docs/tutorials/how-tos/use-specialized-payment-types/use-payment-channels
+  // If the response shows `"signature_verified": true` then the claim's signature is genuine.
+  // The payee must also confirm that the channel has enough XRP available to honor the claim.
+  // To do this, the payee uses the account_channels method to confirm the most recent
+  // validated state of the payment channel.
   const verifyResponse: ChannelVerifyResponse = await client.request(
     verifyRequest
   );
 
-  // From the docs
-  // If the response shows "signature_verified": true then the claim's signature is genuine.
-  // The payee must also confirm that the channel has enough XRP available to honor the claim.
-  // To do this, the payee uses the account_channels method to confirm the most recent
-  // validated state of the payment channel.
+  // BIG TODO
+  // The payee should check the following:
+  // READ THE DOCS, THERE IS A LOT GOING ON THERE
+
+  // TODO 2:
+  // If the payee verify one time, can the payee trust on this information for all claims?
+  // What other optimizations can the payee do?
 
   // Return the verification result
   return verifyResponse.result.signature_verified === true;
@@ -409,7 +435,7 @@ async function checkFinalStatus(params: {
   payeeWallet: Wallet;
   channelId: string;
 }): Promise<void> {
-  const { payerWallet, payeeWallet, channelId } = params;
+  const { payerWallet, payeeWallet } = params;
 
   // Check final balances after attempting to close the channel
   console.log("Final balances after channel close request:");
