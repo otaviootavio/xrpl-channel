@@ -48,18 +48,18 @@ export function createPayee(client: Client, wallet: Wallet) {
       channelId,
       signature,
       publicKey,
-      xrpAmount,
+      amount,
       payerClassicAddress,
     }: {
       channelId: string;
       signature: string;
       publicKey: string;
-      xrpAmount: string;
+      amount: string;
       payerClassicAddress: string;
     }) => {
       return verifyPaymentChannelClaim({
         channelId,
-        xrpAmount,
+        amount,
         signature,
         publicKey,
         client,

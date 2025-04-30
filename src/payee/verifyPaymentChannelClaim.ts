@@ -12,7 +12,7 @@ export async function verifyPaymentChannelClaim({
   channelId,
   signature,
   publicKey,
-  xrpAmount,
+  amount,
   payerClassicAddress,
   client,
   wallet,
@@ -20,7 +20,7 @@ export async function verifyPaymentChannelClaim({
   channelId: string;
   signature: string;
   publicKey: string;
-  xrpAmount: string;
+  amount: string;
   payerClassicAddress: string;
   client: Client;
   wallet: Wallet;
@@ -34,7 +34,7 @@ export async function verifyPaymentChannelClaim({
       channel_id: channelId,
       signature: signature,
       public_key: publicKey,
-      amount: xrpAmount,
+      amount: amount,
     };
 
     const verifyResponse: ChannelVerifyResponse = await client.request(
@@ -56,10 +56,10 @@ export async function verifyPaymentChannelClaim({
     });
 
     // Check if claim amount exceeds channel capacity
-    const amountValue = parseInt(xrpAmount);
+    const amountValue = parseInt(amount);
     if (amountValue > parseInt(channel.amount)) {
       errors.push(
-        `Claim amount ${xrpAmount} exceeds channel capacity ${channel.amount}`
+        `Claim amount ${amount} exceeds channel capacity ${channel.amount}`
       );
     }
 

@@ -88,7 +88,7 @@ async function main(): Promise<void> {
       channelId,
       signature: finalSignature,
       publicKey: wallet1.publicKey,
-      xrpAmount: currentClaimAmount,
+      amount: currentClaimAmount,
       payerClassicAddress: wallet1.classicAddress,
     });
 
