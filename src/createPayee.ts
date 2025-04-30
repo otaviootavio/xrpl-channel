@@ -8,6 +8,7 @@ import { Client, type PaymentChannelClaim, type Wallet } from "xrpl";
 import { verifyPaymentChannelClaim } from "./payee/verifyPaymentChannelClaim";
 import { validateChannel } from "./payee/validateChannel";
 import { claimPaymentChannel } from "./payee/claimPaymentChannel";
+import { closePaymentChannel } from "./payee/closePaymentChannel";
 
 // Use a direct HTTP endpoint for raw JSON-RPC calls
 
@@ -98,24 +99,16 @@ export function createPayee(client: Client, wallet: Wallet) {
     /**
      * Close a payment channel
      */
-    closePaymentChannel: async (params: {
+    closePaymentChannel: async ({
+      channelId,
+    }: {
       channelId: string;
     }): Promise<void> => {
-      const { channelId } = params;
-
-      // Request to close the channel immediately
-      const closeChannelTx: PaymentChannelClaim = {
-        Account: wallet.classicAddress,
-        TransactionType: "PaymentChannelClaim",
-        Channel: channelId,
-        Flags: 2147614720, // tfClose flag
-      };
-
-      const closeChannelResponse = await client.submitAndWait(closeChannelTx, {
-        wallet: wallet,
-        autofill: true,
+      return closePaymentChannel({
+        channelId,
+        wallet,
+        client,
       });
-      // console.log("Close channel response:", closeChannelResponse);
     },
   };
 }
