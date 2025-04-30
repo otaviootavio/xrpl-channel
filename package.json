@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "node-fetch": "^2.7.0",
-    "xrpl": "^4.2.0"
+    "xrpl": "^4.2.5"
   }
 }
