@@ -7,6 +7,28 @@ import { checkFinalStatus } from "./src/utils/checkFinalStatus";
 
 const remoteClient = new Client("wss://s.altnet.rippletest.net:51233");
 
+// Payment channel metadata configuration
+const creationData = {
+  amount: "10000000",
+  settleDelay: 60 * 60, // 1 hour
+  cancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next 3 hours
+  fundAmount: "69420",
+  fundExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
+};
+
+const validationData = {
+  expectedAmount: "", // Will be set dynamically after funding
+  minSettleDelay: 60 * 60,
+  minCancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000),
+  minExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000),
+};
+
+const paymentData = {
+  amountXRP: 0.04,
+  amountDrops: "40000", // 0.04 * 1000000
+  numberOfPayments: 100,
+};
+
 // Main function to orchestrate the process
 void main();
 
@@ -29,13 +51,12 @@ async function main(): Promise<void> {
   });
 
   // #1. The payer creates a payment channel to a particular recipient.
-  // Also setup the imutable expiration
   console.log("Creating payment channel...");
   const channelId = await payer.createPaymentChannel({
     payeeClassicAddress: wallet2.classicAddress,
-    amount: "10000000",
-    settleDelay: 60 * 60, // 1 hour
-    cancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next 3 hours
+    amount: creationData.amount,
+    settleDelay: creationData.settleDelay,
+    cancelAfter: creationData.cancelAfter,
   });
   console.log("Payment channel created:", channelId);
 
@@ -48,8 +69,8 @@ async function main(): Promise<void> {
   console.log("Creating payment channel fund...");
   const paymentChannelFundResponse = await payer.createPaymentChannelFund({
     channelId,
-    amount: "69420",
-    expiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
+    amount: creationData.fundAmount,
+    expiration: creationData.fundExpiration,
   });
 
   console.log(
@@ -57,13 +78,18 @@ async function main(): Promise<void> {
     paymentChannelFundResponse.result.hash
   );
 
+  // Update the expected amount in validation metadata after funding
+  validationData.expectedAmount = (
+    parseInt(creationData.amount) + parseInt(creationData.fundAmount)
+  ).toString();
+
   const channelStatus = await payee.validateChannel({
     channelId,
     payerClassicAddress: wallet1.classicAddress,
-    expectedAmount: `${10000000 + 69420}`, // some how the payee must know the total amount after the payer fund it (websocket?)
-    minSettleDelay: 60 * 60,
-    minCancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next hour
-    minExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
+    expectedAmount: validationData.expectedAmount,
+    minSettleDelay: validationData.minSettleDelay,
+    minCancelAfter: validationData.minCancelAfter,
+    minExpiration: validationData.minExpiration,
   });
 
   if (!channelStatus.isValid) {
@@ -73,17 +99,17 @@ async function main(): Promise<void> {
   }
 
   // Define payment amount in XRP and convert to drops
-  const paymentAmountXRP = 0.04;
-  const paymentAmountDrops = (paymentAmountXRP * 1000000).toString(); // 400000 drops
+  const paymentAmountXRP = paymentData.amountXRP;
+  const paymentAmountDrops = paymentData.amountDrops;
   let cumulativeAmountDrops = 0;
   let finalSignature = "";
 
   console.log(
-    `Making 100 off-chain payments of ${paymentAmountXRP} XRP (${paymentAmountDrops} drops) each`
+    `Making ${paymentData.numberOfPayments} off-chain payments of ${paymentAmountXRP} XRP (${paymentAmountDrops} drops) each`
   );
 
-  // Loop to simulate 100 off-chain payments
-  for (let i = 0; i < 100; i++) {
+  // Loop to simulate off-chain payments
+  for (let i = 0; i < paymentData.numberOfPayments; i++) {
     // Increase cumulative amount
     cumulativeAmountDrops += parseInt(paymentAmountDrops);
     const currentClaimAmount = cumulativeAmountDrops.toString();
@@ -133,7 +159,9 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `\nCompleted 10 off-chain payments totaling ${cumulativeAmountDrops} drops (${
+    `\nCompleted ${
+      paymentData.numberOfPayments
+    } off-chain payments totaling ${cumulativeAmountDrops} drops (${
       cumulativeAmountDrops / 1000000
     } XRP)`
   );
