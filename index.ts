@@ -2,9 +2,8 @@ import { createPayer } from "./src/createPayer";
 import { createPayee } from "./src/createPayee";
 import { setupWallets } from "./src/utils/setupWallets";
 import { printAccountBalances } from "./src/utils/printAccountBalances";
-import { Client } from "xrpl";
+import { Client, unixTimeToRippleTime } from "xrpl";
 import { checkFinalStatus } from "./src/utils/checkFinalStatus";
-import { createPaymentChannel } from "./src/payer/createPaymentChannel";
 
 const remoteClient = new Client("wss://s.altnet.rippletest.net:51233");
 
@@ -30,20 +29,41 @@ async function main(): Promise<void> {
   });
 
   // #1. The payer creates a payment channel to a particular recipient.
-  const channelId = await createPaymentChannel({
+  // Also setup the imutable expiration
+  console.log("Creating payment channel...");
+  const channelId = await payer.createPaymentChannel({
     payeeClassicAddress: wallet2.classicAddress,
     amount: "10000000",
-    settleDelay: 86400,
-    client: remoteClient,
-    payerWallet: wallet1,
+    settleDelay: 60 * 60, // 1 hour
+    cancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next 3 hours
+  });
+  console.log("Payment channel created:", channelId);
+
+  // For some reason the Payer can add more funds and
+  // set the Expiration time just after the channel creation
+  // This is the *mutable* expiration
+  // This must be later than either the current time plus the
+  // SettleDelay of the channel, or the existing Expiration of the channel
+
+  console.log("Creating payment channel fund...");
+  const paymentChannelFundResponse = await payer.createPaymentChannelFund({
+    channelId,
+    amount: "69420",
+    expiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
   });
 
-  // #2. The payee checks specifics of the payment channel.
+  console.log(
+    "Payment channel fund response:",
+    paymentChannelFundResponse.result.hash
+  );
+
   const channelStatus = await payee.validateChannel({
     channelId,
     payerClassicAddress: wallet1.classicAddress,
-    expectedAmount: "10000000",
-    minSettleDelay: 86400,
+    expectedAmount: `${10000000 + 69420}`, // some how the payee must know the total amount after the payer fund it (websocket?)
+    minSettleDelay: 60 * 60,
+    minCancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next hour
+    minExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
   });
 
   if (!channelStatus.isValid) {
@@ -80,7 +100,7 @@ async function main(): Promise<void> {
       amount: currentClaimAmount,
     });
 
-    // #4.The payer sends a claim to the payee as payment for goods or services.
+    // #4. The payer sends a claim to the payee as payment for goods or services.
 
     // #5. The payee verifies the claim
     console.log(`Payee: Verifying claim for payment ${i + 1}...`);
@@ -118,6 +138,45 @@ async function main(): Promise<void> {
     } XRP)`
   );
   console.log(`Final signature: ${finalSignature}`);
+
+  // 8. PAYEE: Redeem claim
+  // (PaymentChannelClaim transaction)
+  // PAYEE receives XRP if channel isn't expired.
+  //
+  // 8a PAYEE's PaymentChannelClaim transaction did not use tfClose flag
+  // -->
+  // CAN GO BACK TO 3-6
+  //
+  // 8b PAYEE's PaymentChannelClaim transaction used tfClose flag
+  // -->
+  // Channel is closed and removed from ledger.
+  // Unclaimed XRP is returned to payer
+
+  // 9a PAYER: request to close channel
+  // (PaymentChannelClaim transaction with tfClose flag)
+
+  // 9a.1 Channel has XRP left; sets Expiration
+  // -->
+  // Mutable Expiration ("Expiration" field)
+  // -->
+  // Channel is expired
+  // -->
+  // 10. Anyone: close channel
+  // (PaymentChannelClose or PaymentChannelFund transaction)
+  // Channel is closed and removed from ledger.
+  // Unclaimed XRP is returned to payer
+  // -->
+
+  // 9a.2 Channel has no XRP left; closes immediately
+  // -->
+  // Channel is closed and removed from ledger.
+  // Unclaimed XRP is returned to payer
+
+  // 9b. PAYEE: request to close channel
+  // (PaymentChannelClaim transaction with tfClose flag)
+  // -->
+  // Channel is closed and removed from ledger.
+  // Unclaimed XRP is returned to payer
 
   // #8 When ready, the payee redeems a claim for the authorized amount
   await payee.claimPaymentChannel({

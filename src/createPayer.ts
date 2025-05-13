@@ -2,10 +2,11 @@
  * Create, claim and verify a Payment Channel.
  * Reference: https://xrpl.org/paychannel.html
  */
-import { Client, Wallet } from "xrpl";
+import { Client, Wallet, type PaymentChannelFund, type TxResponse } from "xrpl";
 
 import { createPaymentChannel } from "./payer/createPaymentChannel";
 import { createPaymentChannelClaim } from "./payer/createPaymentChannelClaim";
+import { createPaymentChannelFund } from "./payer/createPaymentChannelFund";
 
 /**
  * Create a payer object with payment channel related functions
@@ -19,10 +20,12 @@ export function createPayer(client: Client, wallet: Wallet) {
       payeeClassicAddress,
       amount,
       settleDelay,
+      cancelAfter,
     }: {
       payeeClassicAddress: string;
       amount: string;
       settleDelay: number;
+      cancelAfter?: number;
     }) => {
       return createPaymentChannel({
         payeeClassicAddress,
@@ -30,6 +33,7 @@ export function createPayer(client: Client, wallet: Wallet) {
         settleDelay,
         client,
         payerWallet: wallet,
+        cancelAfter,
       });
     },
 
@@ -47,6 +51,27 @@ export function createPayer(client: Client, wallet: Wallet) {
         channelId,
         amount,
         wallet,
+      });
+    },
+
+    /**
+     * Create a payment channel fund
+     */
+    createPaymentChannelFund: ({
+      channelId,
+      amount,
+      expiration,
+    }: {
+      channelId: string;
+      amount: string;
+      expiration?: number;
+    }): Promise<TxResponse<PaymentChannelFund>> => {
+      return createPaymentChannelFund({
+        channelId,
+        amount,
+        expiration,
+        client,
+        payerWallet: wallet,
       });
     },
   };

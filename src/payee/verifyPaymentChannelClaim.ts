@@ -1,6 +1,7 @@
 import { rippleTimeToISOTime, rippleTimeToUnixTime } from "xrpl";
 
 import type {
+  Channel,
   ChannelVerifyRequest,
   ChannelVerifyResponse,
   Client,
@@ -48,7 +49,7 @@ export async function verifyPaymentChannelClaim({
 
     // 2. Check if the channel has enough XRP available
     // Always fetch fresh channel data for each verification
-    const channel = await getChannelStatus({
+    const channel: Channel = await getChannelStatus({
       channelId,
       payerClassicAddress,
       client,

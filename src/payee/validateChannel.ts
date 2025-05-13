@@ -14,6 +14,8 @@ export async function validateChannel({
   minSettleDelay,
   client,
   wallet,
+  minCancelAfter,
+  minExpiration,
 }: {
   channelId: string;
   payerClassicAddress: string;
@@ -21,6 +23,8 @@ export async function validateChannel({
   minSettleDelay: number;
   client: Client;
   wallet: Wallet;
+  minCancelAfter?: number;
+  minExpiration?: number;
 }): Promise<{
   isValid: boolean;
   errors: string[];
@@ -30,7 +34,7 @@ export async function validateChannel({
 
   try {
     // Get channel information
-    const channel = await getChannelStatus({
+    const channel: Channel = await getChannelStatus({
       channelId,
       payerClassicAddress,
       client,
@@ -51,10 +55,10 @@ export async function validateChannel({
       );
     }
 
-    // 3. Check expiration times
-    if (channel.cancel_after) {
+    // 3. Check cancel after
+    if (channel.cancel_after && minCancelAfter) {
       const cancelTime = new Date(rippleTimeToUnixTime(channel.cancel_after));
-      if (cancelTime.getTime() < Date.now() + 3600000) {
+      if (cancelTime.getTime() < minCancelAfter) {
         // Within the next hour
         errors.push(
           `Immutable expiration (cancel_after) is too soon: ${rippleTimeToISOTime(
@@ -64,9 +68,10 @@ export async function validateChannel({
       }
     }
 
-    if (channel.expiration) {
+    // 3. Check expiration
+    if (channel.expiration && minExpiration) {
       const expirationTime = new Date(rippleTimeToUnixTime(channel.expiration));
-      if (expirationTime.getTime() < Date.now() + 3600000) {
+      if (expirationTime.getTime() < minExpiration) {
         // Within the next hour
         errors.push(
           `Mutable expiration is too soon: ${rippleTimeToISOTime(

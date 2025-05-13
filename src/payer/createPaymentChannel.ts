@@ -24,14 +24,15 @@ export async function createPaymentChannel({
   settleDelay,
   client,
   payerWallet,
+  cancelAfter,
 }: {
   payeeClassicAddress: string;
   amount: string;
   settleDelay: number;
   client: Client;
   payerWallet: Wallet;
+  cancelAfter?: number;
 }): Promise<string> {
-  console.log("Submitting a PaymentChannelCreate transaction...");
 
   const paymentChannelCreateTx: PaymentChannelCreate = {
     TransactionType: "PaymentChannelCreate",
@@ -40,6 +41,7 @@ export async function createPaymentChannel({
     Destination: payeeClassicAddress,
     SettleDelay: settleDelay,
     PublicKey: payerWallet.publicKey,
+    CancelAfter: cancelAfter,
   };
 
   const paymentChannelCreateResponse = await client.submitAndWait(
@@ -65,8 +67,6 @@ export async function createPaymentChannel({
     payeeClassicAddress,
     sequence
   );
-
-  console.log("Channel ID:", channelId);
 
   return channelId;
 }

@@ -21,23 +21,34 @@ export function createPayee(client: Client, wallet: Wallet) {
   return {
     /**
      * Validate a payment channel's parameters
+     * @param channelId - The ID of the payment channel to validate
+     * @param payerClassicAddress - The classic address of the payer
+     * @param expectedAmount - The expected amount of the payment channel
+     * @param minExpectedSettleDelay - The minimum expected settle delay of the payment channel
+     * @param cancelAfter - The cancel after time of the payment channel
      */
     validateChannel: async ({
       channelId,
       payerClassicAddress,
       expectedAmount,
       minSettleDelay,
+      minCancelAfter,
+      minExpiration,
     }: {
       channelId: string;
       payerClassicAddress: string;
       expectedAmount: string;
       minSettleDelay: number;
+      minCancelAfter?: number;
+      minExpiration?: number;
     }) => {
       return validateChannel({
         channelId,
         payerClassicAddress,
         expectedAmount,
         minSettleDelay,
+        minCancelAfter,
+        minExpiration,
         client,
         wallet,
       });
