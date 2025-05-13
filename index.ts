@@ -18,9 +18,9 @@ const creationData = {
 
 const validationData = {
   expectedAmount: "", // Will be set dynamically after funding
-  minSettleDelay: 60 * 60,
-  minCancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000),
-  minExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000),
+  minSettleDelay: 60 * 60, // 1 hour
+  minCancelAfter: unixTimeToRippleTime(Date.now() + 3 * 60 * 60 * 1000), // within the next 3 hours
+  minExpiration: unixTimeToRippleTime(Date.now() + 2 * 60 * 60 * 1000), // within the next 2 hours
 };
 
 const paymentData = {
